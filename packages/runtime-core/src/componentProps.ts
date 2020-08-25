@@ -27,7 +27,7 @@ import {
   Data,
   ComponentInternalInstance,
   ComponentOptions,
-  Component
+  ConcreteComponent
 } from './component'
 import { isEmitListener } from './componentEmits'
 import { InternalObjectKey } from './vnode'
@@ -40,14 +40,14 @@ export type ComponentObjectPropsOptions<P = Data> = {
   [K in keyof P]: Prop<P[K]> | null
 }
 
-export type Prop<T> = PropOptions<T> | PropType<T>
+export type Prop<T, D = T> = PropOptions<T, D> | PropType<T>
 
-type DefaultFactory<T> = () => T | null | undefined
+type DefaultFactory<T> = (props: Data) => T | null | undefined
 
-interface PropOptions<T = any> {
+interface PropOptions<T = any, D = T> {
   type?: PropType<T> | true | null
   required?: boolean
-  default?: T | DefaultFactory<T> | null | undefined
+  default?: D | DefaultFactory<D> | null | undefined | object
   validator?(value: unknown): boolean
 }
 
@@ -80,10 +80,10 @@ type InferPropType<T> = T extends null
   : T extends { type: null | true }
     ? any // As TS issue https://github.com/Microsoft/TypeScript/issues/14829 // somehow `ObjectConstructor` when inferred from { (): T } becomes `any` // `BooleanConstructor` when inferred from PropConstructor(with PropMethod) becomes `Boolean`
     : T extends ObjectConstructor | { type: ObjectConstructor }
-      ? { [key: string]: any }
+      ? Record<string, any>
       : T extends BooleanConstructor | { type: BooleanConstructor }
         ? boolean
-        : T extends Prop<infer V> ? V : T
+        : T extends Prop<infer V, infer D> ? (unknown extends V ? D : V) : T
 
 export type ExtractPropTypes<
   O,
@@ -153,7 +153,12 @@ export function updateProps(
   const rawCurrentProps = toRaw(props)
   const [options] = normalizePropsOptions(instance.type)
 
-  if ((optimized || patchFlag > 0) && !(patchFlag & PatchFlags.FULL_PROPS)) {
+  if (
+    // always force full diff if hmr is enabled
+    !(__DEV__ && instance.type.__hmrId) &&
+    (optimized || patchFlag > 0) &&
+    !(patchFlag & PatchFlags.FULL_PROPS)
+  ) {
     if (patchFlag & PatchFlags.PROPS) {
       // Compiler-generated props & no keys change, just set the updated
       // the props.
@@ -291,7 +296,7 @@ function resolvePropValue(
       const defaultValue = opt.default
       value =
         opt.type !== Function && isFunction(defaultValue)
-          ? defaultValue()
+          ? defaultValue(props)
           : defaultValue
     }
     // boolean casting
@@ -310,7 +315,7 @@ function resolvePropValue(
 }
 
 export function normalizePropsOptions(
-  comp: Component
+  comp: ConcreteComponent
 ): NormalizedPropsOptions | [] {
   if (comp.__props) {
     return comp.__props
@@ -322,7 +327,7 @@ export function normalizePropsOptions(
 
   // apply mixin/extends props
   let hasExtends = false
-  if (__FEATURE_OPTIONS__ && !isFunction(comp)) {
+  if (__FEATURE_OPTIONS_API__ && !isFunction(comp)) {
     const extendProps = (raw: ComponentOptions) => {
       const [props, keys] = normalizePropsOptions(raw)
       extend(normalized, props)
@@ -411,7 +416,7 @@ function getTypeIndex(
 /**
  * dev only
  */
-function validateProps(props: Data, comp: Component) {
+function validateProps(props: Data, comp: ConcreteComponent) {
   const rawValues = toRaw(props)
   const options = normalizePropsOptions(comp)[0]
   for (const key in options) {
@@ -497,7 +502,7 @@ function assertType(value: unknown, type: PropConstructor): AssertionResult {
       valid = value instanceof type
     }
   } else if (expectedType === 'Object') {
-    valid = toRawType(value) === 'Object'
+    valid = isObject(value)
   } else if (expectedType === 'Array') {
     valid = isArray(value)
   } else {
