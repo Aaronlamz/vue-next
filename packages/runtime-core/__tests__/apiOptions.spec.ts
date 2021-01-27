@@ -113,6 +113,7 @@ describe('api: options', () => {
     const spyB = jest.fn(returnThis)
     const spyC = jest.fn(returnThis)
     const spyD = jest.fn(returnThis)
+    const spyE = jest.fn(returnThis)
 
     let ctx: any
     const Comp = {
@@ -123,7 +124,10 @@ describe('api: options', () => {
           baz: {
             qux: 3
           },
-          qux: 4
+          qux: 4,
+          dot: {
+            path: 5
+          }
         }
       },
       watch: {
@@ -137,7 +141,8 @@ describe('api: options', () => {
         },
         qux: {
           handler: 'onQuxChange'
-        }
+        },
+        'dot.path': spyE
       },
       methods: {
         onFooChange: spyA,
@@ -175,6 +180,11 @@ describe('api: options', () => {
     await nextTick()
     expect(spyD).toHaveBeenCalledTimes(1)
     assertCall(spyD, 0, [5, 4])
+
+    ctx.dot.path++
+    await nextTick()
+    expect(spyE).toHaveBeenCalledTimes(1)
+    assertCall(spyE, 0, [6, 5])
   })
 
   test('watch array', async () => {
@@ -241,7 +251,93 @@ describe('api: options', () => {
   })
 
   test('provide/inject', () => {
-    const Root = {
+    const symbolKey = Symbol()
+    const Root = defineComponent({
+      data() {
+        return {
+          a: 1
+        }
+      },
+      provide() {
+        return {
+          a: this.a,
+          [symbolKey]: 2
+        }
+      },
+      render() {
+        return [
+          h(ChildA),
+          h(ChildB),
+          h(ChildC),
+          h(ChildD),
+          h(ChildE),
+          h(ChildF),
+          h(ChildG),
+          h(ChildH),
+          h(ChildI),
+          h(ChildJ)
+        ]
+      }
+    })
+
+    const defineChild = (injectOptions: any, injectedKey = 'b') =>
+      ({
+        inject: injectOptions,
+        render() {
+          return this[injectedKey]
+        }
+      } as any)
+
+    const ChildA = defineChild(['a'], 'a')
+    const ChildB = defineChild({ b: 'a' })
+    const ChildC = defineChild({
+      b: {
+        from: 'a'
+      }
+    })
+    const ChildD = defineChild(
+      {
+        a: {
+          default: () => 0
+        }
+      },
+      'a'
+    )
+    const ChildE = defineChild({
+      b: {
+        from: 'c',
+        default: 2
+      }
+    })
+    const ChildF = defineChild({
+      b: {
+        from: 'c',
+        default: () => 3
+      }
+    })
+    const ChildG = defineChild({
+      b: {
+        default: 4
+      }
+    })
+    const ChildH = defineChild({
+      b: {
+        default: () => 5
+      }
+    })
+    const ChildI = defineChild({
+      b: symbolKey
+    })
+    const ChildJ = defineChild({
+      b: {
+        from: symbolKey
+      }
+    })
+    expect(renderToString(h(Root))).toBe(`1111234522`)
+  })
+
+  test('provide accessing data in extends', () => {
+    const Base = defineComponent({
       data() {
         return {
           a: 1
@@ -251,47 +347,23 @@ describe('api: options', () => {
         return {
           a: this.a
         }
-      },
-      render() {
-        return [h(ChildA), h(ChildB), h(ChildC), h(ChildD)]
       }
-    } as any
-    const ChildA = {
+    })
+
+    const Child = {
       inject: ['a'],
       render() {
-        return this.a
+        return (this as any).a
       }
-    } as any
-    const ChildB = {
-      // object alias
-      inject: { b: 'a' },
-      render() {
-        return this.b
-      }
-    } as any
-    const ChildC = {
-      inject: {
-        b: {
-          from: 'a'
-        }
-      },
-      render() {
-        return this.b
-      }
-    } as any
-    const ChildD = {
-      inject: {
-        b: {
-          from: 'c',
-          default: 2
-        }
-      },
-      render() {
-        return this.b
-      }
-    } as any
+    }
 
-    expect(renderToString(h(Root))).toBe(`1112`)
+    const Root = defineComponent({
+      extends: Base,
+      render() {
+        return h(Child)
+      }
+    })
+    expect(renderToString(h(Root))).toBe(`1`)
   })
 
   test('lifecycle', async () => {
@@ -633,6 +705,115 @@ describe('api: options', () => {
     expect(calls).toEqual(['base', 'mixin', 'comp'])
   })
 
+  test('beforeCreate/created in extends and mixins', () => {
+    const calls: string[] = []
+    const BaseA = {
+      beforeCreate() {
+        calls.push('beforeCreateA')
+      },
+      created() {
+        calls.push('createdA')
+      }
+    }
+    const BaseB = {
+      extends: BaseA,
+      beforeCreate() {
+        calls.push('beforeCreateB')
+      },
+      created() {
+        calls.push('createdB')
+      }
+    }
+
+    const MixinA = {
+      beforeCreate() {
+        calls.push('beforeCreateC')
+      },
+      created() {
+        calls.push('createdC')
+      }
+    }
+    const MixinB = {
+      mixins: [MixinA],
+      beforeCreate() {
+        calls.push('beforeCreateD')
+      },
+      created() {
+        calls.push('createdD')
+      }
+    }
+
+    const Comp = {
+      extends: BaseB,
+      mixins: [MixinB],
+      beforeCreate() {
+        calls.push('selfBeforeCreate')
+      },
+      created() {
+        calls.push('selfCreated')
+      },
+      render() {}
+    }
+
+    renderToString(h(Comp))
+    expect(calls).toEqual([
+      'beforeCreateA',
+      'beforeCreateB',
+      'beforeCreateC',
+      'beforeCreateD',
+      'selfBeforeCreate',
+      'createdA',
+      'createdB',
+      'createdC',
+      'createdD',
+      'selfCreated'
+    ])
+  })
+
+  test('flatten merged options', async () => {
+    const MixinBase = {
+      msg1: 'base'
+    }
+    const ExtendsBase = {
+      msg2: 'base'
+    }
+    const Mixin = {
+      mixins: [MixinBase]
+    }
+    const Extends = {
+      extends: ExtendsBase
+    }
+    const Comp = defineComponent({
+      extends: defineComponent(Extends),
+      mixins: [defineComponent(Mixin)],
+      render() {
+        return `${this.$options.msg1},${this.$options.msg2}`
+      }
+    })
+
+    expect(renderToString(h(Comp))).toBe('base,base')
+  })
+
+  test('options defined in component have higher priority', async () => {
+    const Mixin = {
+      msg1: 'base'
+    }
+    const Extends = {
+      msg2: 'base'
+    }
+    const Comp = defineComponent({
+      msg1: 'local',
+      msg2: 'local',
+      extends: defineComponent(Extends),
+      mixins: [defineComponent(Mixin)],
+      render() {
+        return `${this.$options.msg1},${this.$options.msg2}`
+      }
+    })
+
+    expect(renderToString(h(Comp))).toBe('local,local')
+  })
+
   test('accessing setup() state from options', async () => {
     const Comp = defineComponent({
       setup() {
@@ -717,6 +898,56 @@ describe('api: options', () => {
     vm.mixin3Data = 'hello'
     await nextTick()
     expect(watchSpy.mock.calls[0].slice(0, 2)).toEqual(['hello', 'mixin3'])
+  })
+
+  test('injection from closest ancestor', () => {
+    const Root = defineComponent({
+      provide: {
+        a: 'root'
+      },
+      render() {
+        return [h(Mid), ' ', h(MidWithProvide), ' ', h(MidWithMixinProvide)]
+      }
+    })
+
+    const Mid = {
+      render() {
+        return h(Child)
+      }
+    } as any
+
+    const MidWithProvide = {
+      provide: {
+        a: 'midWithProvide'
+      },
+      render() {
+        return h(Child)
+      }
+    } as any
+
+    const mixin = {
+      provide: {
+        a: 'midWithMixinProvide'
+      }
+    }
+
+    const MidWithMixinProvide = {
+      mixins: [mixin],
+      render() {
+        return h(Child)
+      }
+    } as any
+
+    const Child = {
+      inject: ['a'],
+      render() {
+        return this.a
+      }
+    } as any
+
+    expect(renderToString(h(Root))).toBe(
+      'root midWithProvide midWithMixinProvide'
+    )
   })
 
   describe('warnings', () => {

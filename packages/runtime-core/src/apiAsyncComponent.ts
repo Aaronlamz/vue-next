@@ -3,11 +3,12 @@ import {
   ConcreteComponent,
   currentInstance,
   ComponentInternalInstance,
-  isInSSRComponentSetup
+  isInSSRComponentSetup,
+  ComponentOptions
 } from './component'
 import { isFunction, isObject } from '@vue/shared'
 import { ComponentPublicInstance } from './componentPublicInstance'
-import { createVNode } from './vnode'
+import { createVNode, VNode } from './vnode'
 import { defineComponent } from './apiDefineComponent'
 import { warn } from './warning'
 import { ref } from '@vue/reactivity'
@@ -33,6 +34,9 @@ export interface AsyncComponentOptions<T = any> {
     attempts: number
   ) => any
 }
+
+export const isAsyncWrapper = (i: ComponentInternalInstance | VNode): boolean =>
+  !!(i.type as ComponentOptions).__asyncLoader
 
 export function defineAsyncComponent<
   T extends Component = { new (): ComponentPublicInstance }
@@ -117,7 +121,12 @@ export function defineAsyncComponent<
 
       const onError = (err: Error) => {
         pendingRequest = null
-        handleError(err, instance, ErrorCodes.ASYNC_COMPONENT_LOADER)
+        handleError(
+          err,
+          instance,
+          ErrorCodes.ASYNC_COMPONENT_LOADER,
+          !errorComponent /* do not throw in dev if user provided error component */
+        )
       }
 
       // suspense-controlled or SSR.
@@ -152,7 +161,7 @@ export function defineAsyncComponent<
 
       if (timeout != null) {
         setTimeout(() => {
-          if (!loaded.value) {
+          if (!loaded.value && !error.value) {
             const err = new Error(
               `Async component timed out after ${timeout}ms.`
             )
@@ -188,7 +197,10 @@ export function defineAsyncComponent<
 
 function createInnerComp(
   comp: ConcreteComponent,
-  { vnode: { props, children } }: ComponentInternalInstance
+  { vnode: { ref, props, children } }: ComponentInternalInstance
 ) {
-  return createVNode(comp, props, children)
+  const vnode = createVNode(comp, props, children)
+  // ensure inner component inherits the async wrapper's ref owner
+  vnode.ref = ref
+  return vnode
 }
