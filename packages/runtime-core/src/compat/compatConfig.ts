@@ -51,7 +51,7 @@ export const enum DeprecationTypes {
   CUSTOM_DIR = 'CUSTOM_DIR',
 
   ATTR_FALSE_VALUE = 'ATTR_FALSE_VALUE',
-  ATTR_ENUMERATED_COERSION = 'ATTR_ENUMERATED_COERSION',
+  ATTR_ENUMERATED_COERCION = 'ATTR_ENUMERATED_COERCION',
 
   TRANSITION_CLASSES = 'TRANSITION_CLASSES',
   TRANSITION_GROUP_ROOT = 'TRANSITION_GROUP_ROOT',
@@ -323,7 +323,7 @@ export const deprecationData: Record<DeprecationTypes, DeprecationData> = {
     link: `https://v3.vuejs.org/guide/migration/attribute-coercion.html`
   },
 
-  [DeprecationTypes.ATTR_ENUMERATED_COERSION]: {
+  [DeprecationTypes.ATTR_ENUMERATED_COERCION]: {
     message: (name: string, value: any, coerced: string) =>
       `Enumerated attribute "${name}" with v-bind value \`${value}\` will ` +
       `${
@@ -333,7 +333,7 @@ export const deprecationData: Record<DeprecationTypes, DeprecationData> = {
       `If the usage is intended, ` +
       `you can disable the compat behavior and suppress this warning with:` +
       `\n\n  configureCompat({ ${
-        DeprecationTypes.ATTR_ENUMERATED_COERSION
+        DeprecationTypes.ATTR_ENUMERATED_COERCION
       }: false })\n`,
     link: `https://v3.vuejs.org/guide/migration/attribute-coercion.html`
   },
@@ -502,7 +502,7 @@ export function warnDeprecation(
       typeof message === 'function' ? message(...args) : message
     }${link ? `\n  Details: ${link}` : ``}`
   )
-  if (!isCompatEnabled(key, instance)) {
+  if (!isCompatEnabled(key, instance, true)) {
     console.error(
       `^ The above deprecation's compat behavior is disabled and will likely ` +
         `lead to runtime errors.`
@@ -531,7 +531,10 @@ const seenConfigObjects = /*#__PURE__*/ new WeakSet<CompatConfig>()
 const warnedInvalidKeys: Record<string, boolean> = {}
 
 // dev only
-export function validateCompatConfig(config: CompatConfig) {
+export function validateCompatConfig(
+  config: CompatConfig,
+  instance?: ComponentInternalInstance
+) {
   if (seenConfigObjects.has(config)) {
     return
   }
@@ -557,6 +560,14 @@ export function validateCompatConfig(config: CompatConfig) {
       }
       warnedInvalidKeys[key] = true
     }
+  }
+
+  if (instance && config[DeprecationTypes.OPTIONS_DATA_MERGE] != null) {
+    warn(
+      `Deprecation config "${
+        DeprecationTypes.OPTIONS_DATA_MERGE
+      }" can only be configured globally.`
+    )
   }
 }
 
